@@ -1,10 +1,10 @@
 import mongoose from "mongoose";
 import dotenv from "dotenv";
+import connectDB from "../db/connectDB.js";
+import { app } from "./app.js";
 
 dotenv.config();
-import connectDB from "../db/connectDB.js";
 
-import { app } from "./app.js";
 const PORT = process.env.PORT || 5000;
 
 connectDB()
