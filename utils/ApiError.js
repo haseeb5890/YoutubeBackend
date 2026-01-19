@@ -1,4 +1,4 @@
-class ApiRoorError extends Error {
+class ApiError extends Error {
   constructor(message, statusCode, error = []) {
     super(message);
     this.statusCode = statusCode;
@@ -10,4 +10,4 @@ class ApiRoorError extends Error {
   }
 }
 
-export default ApiRoorError;
+export default ApiError;

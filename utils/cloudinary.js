@@ -14,12 +14,19 @@ const uploadOnCloudinary = async (filePath) => {
       resource_type: "auto",
     });
     fs.unlinkSync(filePath); // Remove the local file after successful upload
-    return result.url;
+    return result;
   } catch (error) {
     fs.unlinkSync(filePath); // Remove the local file in case of error
     console.error("Error uploading to Cloudinary:", error);
     throw error;
   }
 };
+const deleteLocalFile = (filePath) => {
+  fs.unlink(filePath, (err) => {
+    if (err) {
+      console.error("Error deleting local file:", err);
+    }
+  });
+};
 
-export { uploadOnCloudinary };
+export { uploadOnCloudinary, deleteLocalFile };
