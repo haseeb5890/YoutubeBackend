@@ -3,7 +3,8 @@ import ApiError from "../utils/apiError.js";
 import { User } from "../models/user.model.js";
 import { uploadOnCloudinary, deleteLocalFile } from "../utils/cloudinary.js";
 import ApiResponse from "../utils/ApiResponse.js";
-import { request } from "node:http";
+
+import mongoose from "mongoose";
 
 const generateAccessAndRefreshToken = async (userId) => {
   try {
@@ -186,4 +187,207 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
   }
 });
 
-export { registerUser, loginUser, logoutUser, refreshAccessToken };
+const changeCurrentPassword = asyncHandler(async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  const user = await User.findById(req.user?._id);
+
+  const isPasswordValid = await user.isPasswordCorrect(currentPassword);
+  if (!isPasswordValid) {
+    throw new ApiError(`You have entered an incorrect password`, 400);
+  }
+  user.password = newPassword;
+  await user.save({ validateBeforeSave: false });
+  res.status(200).json(new ApiResponse(200, "Password changed successfully"));
+});
+const getCurrentUserProfile = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.user?._id).select("-password");
+  res
+    .status(200)
+    .json(new ApiResponse(200, "User profile retrieved successfully", user));
+});
+
+const updateAccountDetails = asyncHandler(async (req, res) => {
+  const { fullName, username } = req.body;
+  const updatedData = {};
+  if (fullName) updatedData.fullName = fullName;
+  if (username) updatedData.username = username;
+  const updatedUser = await User.findByIdAndUpdate(
+    req.user?._id,
+    { $set: updatedData }, //$set operator is used to update only the specified fields like the updatedData object here
+    { new: true },
+  ).select("-password");
+  res
+    .status(200)
+    .json(
+      new ApiResponse(200, "Account details updated successfully", updatedUser),
+    );
+});
+
+const updateUserAvatar = asyncHandler(async (req, res) => {
+  const avatarLocalPath = req.file?.path;
+  if (!avatarLocalPath) {
+    throw new ApiError("Avatar image is required", 400);
+  }
+  const avatar = await uploadOnCloudinary(avatarLocalPath);
+  if (!avatar) {
+    throw new ApiError("Error uploading avatar image", 500);
+  }
+  const updatedUser = await User.findByIdAndUpdate(
+    req.user?._id,
+    { $set: { avatar: avatar.url } },
+    { new: true },
+  ).select("-password");
+  res
+    .status(200)
+    .json(
+      new ApiResponse(200, "User avatar updated successfully", updatedUser),
+    );
+});
+
+const updateCoverImage = asyncHandler(async (req, res) => {
+  const coverImageLocalPath = req.file?.path;
+  if (!coverImageLocalPath) {
+    throw new ApiError("Cover image is required", 400);
+  }
+  const coverImage = await uploadOnCloudinary(coverImageLocalPath);
+  if (!coverImage) {
+    throw new ApiError("Error uploading cover image", 500);
+  }
+  const updatedUser = await User.findByIdAndUpdate(
+    req.user?._id,
+    { $set: { coverImage: coverImage.url } },
+    { new: true },
+  ).select("-password");
+  res
+    .status(200)
+    .json(
+      new ApiResponse(
+        200,
+        "User cover image updated successfully",
+        updatedUser,
+      ),
+    );
+});
+
+const getUserChannelProfile = asyncHandler(async (req, res) => {
+  const { username } = req.params;
+  if (!username?.trim()) {
+    throw new ApiError("Username is required", 400);
+  }
+  const channel = await User.aggregate([
+    //go to the User collection
+    { $match: { username: username?.toLowerCase() } }, //$match to find the user by username
+    {
+      $lookup: {
+        from: "subscriptions", //now from the subscriptions collection
+        localField: "_id", // check where the user _id matches
+        foreignField: "channel", // the channel field
+        as: "subscribers", // rename the array field as subscribers
+      },
+    },
+
+    {
+      $lookup: {
+        from: "subscriptions",
+        localField: "_id",
+        foreignField: "subscriber",
+        as: "subscribedChannels",
+      },
+    },
+    {
+      $addFields: {
+        subscribersCount: { $size: "$subscribers" },
+        subscribedChannelsCount: { $size: "$subscribedChannels" },
+        isSubscribed: {
+          $cond: {
+            if: {
+              $in: [req.user?._id, "$subscribers.subscriber"],
+            },
+            then: true,
+            else: false,
+          },
+        },
+      },
+    },
+    {
+      $project: {
+        password: 0,
+        refreshToken: 0,
+      },
+    },
+  ]);
+  if (!channel || channel.length === 0) {
+    throw new ApiError(`Channel with username ${username} not found`, 404);
+  }
+  res
+    .status(200)
+    .json(
+      new ApiResponse(
+        200,
+        "Channel profile retrieved successfully",
+        channel[0],
+      ),
+    );
+});
+
+const getWatchHistory = asyncHandler(async (req, res) => {
+  const user = await User.aggregate([
+    { $match: { _id: new mongoose.Types.ObjectId(req.user?._id) } },
+    {
+      $lookup: {
+        from: "videos",
+        localField: "watchHistory",
+        foreignField: "_id",
+        as: "watchedVideos",
+        pipeline: [
+          {
+            $lookup: {
+              from: "users",
+              localField: "owner",
+              foreignField: "_id",
+              as: "owner",
+              pipeline: [
+                {
+                  $project: {
+                    password: 0,
+                    refreshToken: 0,
+                    email: 0,
+                  },
+                },
+              ],
+            },
+          },
+          {
+            $addFields: {
+              owner: { $first: "$owner" },
+              //or
+              // owner: { $arrayElemAt: ["$owner", 0] Both returns first element of the owner array not as an array but as an object
+            },
+          },
+        ],
+      },
+    },
+  ]);
+  res
+    .status(200)
+    .json(
+      new ApiResponse(
+        200,
+        "Watch history retrieved successfully",
+        user[0]?.watchedVideos || [],
+      ),
+    );
+});
+export {
+  registerUser,
+  loginUser,
+  logoutUser,
+  refreshAccessToken,
+  changeCurrentPassword,
+  getCurrentUserProfile,
+  updateAccountDetails,
+  updateUserAvatar,
+  updateCoverImage,
+  getUserChannelProfile,
+  getWatchHistory,
+};
